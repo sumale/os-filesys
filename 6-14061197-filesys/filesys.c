@@ -38,7 +38,7 @@ void ScanBootSector()
 	bdptor.Heads = RevByte(buf[0x1a],buf[0x1b]);
 	bdptor.HiddenSectors = RevByte(buf[0x1c],buf[0x1d]);
 
-
+	fatbuf=(unsigned char *)malloc((bdptor.SectorsPerFAT<<9)+16);
 	printf("Oem_name \t\t%s\n"
 		"BytesPerSector \t\t%d\n"
 		"SectorsPerCluster \t%d\n"
@@ -63,6 +63,9 @@ void ScanBootSector()
 		bdptor.SectorsPerTrack,
 		bdptor.Heads,
 		bdptor.HiddenSectors);
+
+	printf("FAT_one\t\t%d\n",FAT_ONE_OFFSET);
+	printf("FAT_two\t\t%d\n",FAT_TWO_OFFSET);
 }
 
 /*日期*/
@@ -114,7 +117,8 @@ void FileNameFormat(unsigned char *name)
 */
 int GetEntry(struct Entry *pentry)
 {
-	int ret,i;
+	int ret,i,k;
+	char ext[3];
 	int count = 0;
 	unsigned char buf[DIR_ENTRY_SIZE], info[2];
 
@@ -122,7 +126,6 @@ int GetEntry(struct Entry *pentry)
 	if( (ret = read(fd,buf,DIR_ENTRY_SIZE))<0)
 		perror("read entry failed");
 	count += ret;
-
 	if(buf[0]==0xe5 || buf[0]== 0x00)
 		return -1*count;
 	else
@@ -134,10 +137,19 @@ int GetEntry(struct Entry *pentry)
 				perror("read root dir failed");
 			count += ret;
 		}
+		if (buf[0]==0xe5 || buf[0]== 0x00) return -1*count;
 
 		/*命名格式化，主义结尾的'\0'*/
-		for (i=0 ;i<=10;i++)
+		for (k=7;k>=0&&buf[k]==0x20;--k);
+		if (k<0) k=0;
+		for (i=0 ;i<=k;i++)
 			pentry->short_name[i] = buf[i];
+		if (buf[8]!=0x20)
+		{
+			k=8;
+			pentry->short_name[i++]='.';
+			while (k<=10&&buf[k]!=0x20) pentry->short_name[i++]=buf[k++];
+		}
 		pentry->short_name[i] = '\0';
 
 		FileNameFormat(pentry->short_name); 
@@ -170,18 +182,26 @@ int GetEntry(struct Entry *pentry)
 *功能：显示当前目录的内容
 *返回值：1，成功；-1，失败
 */
-int fd_ls()
+int fd_ls(int detail, struct Entry * curdir)
 {
-	int ret, offset,cluster_addr;
+	int ret, offset,cluster_addr, curClu;
 	struct Entry entry;
 	unsigned char buf[DIR_ENTRY_SIZE];
 	if( (ret = read(fd,buf,DIR_ENTRY_SIZE))<0)
 		perror("read entry failed");
+	if (curdir!=NULL&&curdir->FirstCluster==1)
+	{
+		curdir=NULL;
+	}
+	else if (curdir!=NULL&&curdir->short_name[0]=='\0') {
+		printf("ls: no such dir.\n");
+		return -1;		
+	}
 	if(curdir==NULL)
-		printf("Root_dir\n");
+		printf(":/\n");
 	else
-		printf("%s_dir\n",curdir->short_name);
-	printf("\tname\tdate\t\t time\t\tcluster\tsize\t\tattr\n");
+		printf(":/%s\n",curdir->short_name);
+	if (detail) printf("\tname\tdate\t\t time\t\tcluster\tsize\t\tattr\n");
 
 	if(curdir==NULL)  /*显示根目录区*/
 	{
@@ -199,8 +219,13 @@ int fd_ls()
 			offset += abs(ret);
 			if(ret > 0)
 			{
-				printf("%12s\t"
-					"%d:%d:%d\t"
+				if (detail) 
+				{
+					if (strcmp(entry.short_name,"..")==0||strcmp(entry.short_name,".")==0)
+						printf("%12s\n", entry.short_name);
+					else
+					printf("%12s\t"
+					"%d/%d/%d\t"
 					"%d:%d:%d   \t"
 					"%d\t"
 					"%d\t\t"
@@ -211,43 +236,124 @@ int fd_ls()
 					entry.FirstCluster,
 					entry.size,
 					(entry.subdir) ? "dir":"file");
+				}
+				else if (entry.short_name[0]!='.') printf("%12s", entry.short_name);
 			}
 		}
 	}
 
 	else /*显示子目录*/
 	{
-		cluster_addr = DATA_OFFSET + (curdir->FirstCluster-2) * CLUSTER_SIZE ;
-		if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
-			perror("lseek cluster_addr failed");
+		curClu=curdir->FirstCluster;
+		while (1) {
+			cluster_addr = DATA_OFFSET + (curClu-2) * CLUSTER_SIZE ;
+			if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
+				perror("lseek cluster_addr failed");
 
-		offset = cluster_addr;
+			offset = cluster_addr;
 
-		/*只读一簇的内容*/
-		while(offset<cluster_addr +CLUSTER_SIZE)
-		{
-			ret = GetEntry(&entry);
-			offset += abs(ret);
-			if(ret > 0)
+			/*只读一簇的内容*/
+			while(offset<cluster_addr +CLUSTER_SIZE)
 			{
-				printf("%12s\t"
-					"%d:%d:%d\t"
-					"%d:%d:%d   \t"
-					"%d\t"
-					"%d\t\t"
-					"%s\n",
-					entry.short_name,
-					entry.year,entry.month,entry.day,
-					entry.hour,entry.min,entry.sec,
-					entry.FirstCluster,
-					entry.size,
-					(entry.subdir) ? "dir":"file");
+				ret = GetEntry(&entry);
+				offset += abs(ret);
+				if(ret > 0)
+				{
+					if (detail) 
+					{
+						if (strcmp(entry.short_name,"..")==0||strcmp(entry.short_name,".")==0)
+							printf("%12s\n", entry.short_name);
+						else
+						printf("%12s\t"
+						"%d/%d/%d\t"
+						"%d:%d:%d   \t"
+						"%d\t"
+						"%d\t\t"
+						"%s\n",
+						entry.short_name,
+						entry.year,entry.month,entry.day,
+						entry.hour,entry.min,entry.sec,
+						entry.FirstCluster,
+						entry.size,
+						(entry.subdir) ? "dir":"file");
+					} else if (entry.short_name[0]!='.') printf("%12s", entry.short_name);
+				}
 			}
+
+			curClu=fatbuf[curClu<<1]+(fatbuf[(curClu<<1)+1]<<8);
+			if (curClu==0xffff) break;
 		}
 	}
+	if (!detail) printf("\n");
 	return 0;
 } 
 
+
+/*
+*参数：entryname 类型：char
+：pentry    类型：struct Entry*
+：mode      类型：int，mode=1，为目录表项；mode=0，为文件
+：where     类型：struct Entry*，place to find
+*返回值：偏移值大于0，则成功；-1，则失败
+*功能：搜索当前目录，查找文件或目录项
+*/
+int ScanEntryIn (char *entryname,struct Entry *pentry,int mode, struct Entry * where)
+{
+	int ret,offset,i;
+	int cluster_addr,curClu;
+	char uppername[80];
+	for(i=0;i< strlen(entryname);i++)
+		uppername[i]= toupper(entryname[i]);
+	uppername[i]= '\0';
+	/*扫描根目录*/
+	if(where ==NULL)  
+	{
+		if((ret = lseek(fd,ROOTDIR_OFFSET,SEEK_SET))<0)
+			perror ("lseek ROOTDIR_OFFSET failed");
+		offset = ROOTDIR_OFFSET;
+
+
+		while(offset<DATA_OFFSET)
+		{
+			tmpaddr=offset;
+			ret = GetEntry(pentry);
+			offset +=abs(ret);
+			tmpsize=abs(ret);
+			if((pentry->subdir == mode||mode==3)&&!strcmp((char*)pentry->short_name,uppername))
+				return offset;
+
+		}
+		return -1;
+	}
+
+	/*扫描子目录*/
+	else  
+	{
+		curClu=where->FirstCluster;
+		while (1) {
+			cluster_addr = DATA_OFFSET + (curClu-2) * CLUSTER_SIZE ;
+			if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
+				perror("lseek cluster_addr failed");
+
+			offset = cluster_addr;
+
+			/*只读一簇的内容*/
+			while(offset<cluster_addr +CLUSTER_SIZE)
+			{
+				tmpaddr=offset;
+				ret = GetEntry(pentry);
+				offset += abs(ret);
+				tmpsize=abs(ret);
+				if((pentry->subdir == mode ||mode==3)&&!strcmp((char*)pentry->short_name,uppername))
+					return offset;
+			}
+
+			curClu=fatbuf[curClu<<1]+(fatbuf[(curClu<<1)+1]<<8);
+			if (curClu==0xffff) break;
+		}
+		return -1;
+	}
+}
 
 /*
 *参数：entryname 类型：char
@@ -258,93 +364,181 @@ int fd_ls()
 */
 int ScanEntry (char *entryname,struct Entry *pentry,int mode)
 {
-	int ret,offset,i;
-	int cluster_addr;
-	char uppername[80];
-	for(i=0;i< strlen(entryname);i++)
-		uppername[i]= toupper(entryname[i]);
-	uppername[i]= '\0';
-	/*扫描根目录*/
-	if(curdir ==NULL)  
-	{
-		if((ret = lseek(fd,ROOTDIR_OFFSET,SEEK_SET))<0)
-			perror ("lseek ROOTDIR_OFFSET failed");
-		offset = ROOTDIR_OFFSET;
-
-
-		while(offset<DATA_OFFSET)
-		{
-			ret = GetEntry(pentry);
-			offset +=abs(ret);
-
-			if(pentry->subdir == mode &&!strcmp((char*)pentry->short_name,uppername))
-
-				return offset;
-
-		}
-		return -1;
-	}
-
-	/*扫描子目录*/
-	else  
-	{
-		cluster_addr = DATA_OFFSET + (curdir->FirstCluster -2)*CLUSTER_SIZE;
-		if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
-			perror("lseek cluster_addr failed");
-		offset= cluster_addr;
-
-		while(offset<cluster_addr + CLUSTER_SIZE)
-		{
-			ret= GetEntry(pentry);
-			offset += abs(ret);
-			if(pentry->subdir == mode &&!strcmp((char*)pentry->short_name,uppername))
-				return offset;
-
-
-
-		}
-		return -1;
-	}
+	return ScanEntryIn(entryname,pentry,mode,curdir);
 }
 
 
 
 /*
-*参数：dir，类型：char
-*返回值：1，成功；-1，失败
-*功能：改变目录到父目录或子目录
+*参数：dir，类型：char ; en，类型：Entry
+*返回值：1，成功；-1，失败, en->short_name==""
+*功能：get目录
 */
-int fd_cd(char *dir)
+int getPath(struct Entry * en, char *dir, int mode)
 {
 	struct Entry *pentry;
-	int ret;
+	int ret,i,j;
+	char t[15];
 
-	if(!strcmp(dir,"."))
+	if (strlen(dir)<=0) 
 	{
-		return 1;
-	}
-	if(!strcmp(dir,"..") && curdir==NULL)
-		return 1;
-	/*返回上一级目录*/
-	if(!strcmp(dir,"..") && curdir!=NULL)
-	{
-		curdir = fatherdir[dirno];
-		dirno--; 
-		return 1;
-	}
-	pentry = (struct Entry*)malloc(sizeof(struct Entry));
-
-	ret = ScanEntry(dir,pentry,1);
-	if(ret < 0)
-	{
-		printf("no such dir\n");
-		free(pentry);
+		en->short_name[0]='\0';
+		en->FirstCluster=0;
 		return -1;
 	}
-	dirno ++;
-	fatherdir[dirno] = curdir;
-	curdir = pentry;
+	if (*dir=='/') 
+	{
+		tentry=NULL;
+		tmpno=0;
+		fathertmp[0]=NULL;
+		i=1;
+	}else 
+	{
+		tentry=curdir;
+		for (i=0;i<=dirno;++i) 
+		{
+			fathertmp[i]=fatherdir[i];
+			//if (fathertmp[i]!=NULL) printf("%s\n", fathertmp[i]->short_name);
+		}
+		tmpno=dirno;
+		i=0;
+	}
+
+	while (1)
+	{
+		j=0;
+		while (dir[i]&&dir[i]!='/'&&j<14) t[j++]=dir[i++];
+		if (j>11) 
+		{
+			en->short_name[0]='\0';
+			en->FirstCluster=0;
+			return -1;
+		}
+		if (dir[i]=='/'||dir[i]=='\0')
+		{
+			t[j]='\0';
+		}
+		/*返回上一级目录*/
+		if(!strcmp(t,"..") && tentry!=NULL)
+		{
+			tentry = fathertmp[tmpno];
+			--tmpno; 
+		}
+		if (strcmp(t,".")!=0&&strcmp(t,"..")!=0&&t[0]!='\0') 
+		{
+			pentry = (struct Entry*)malloc(sizeof(struct Entry));
+
+			if (dir[i]=='\0') ret = ScanEntryIn(t,pentry,mode,tentry);
+			else ret = ScanEntryIn(t,pentry,1,tentry);
+			if(ret < 0)
+			{
+				//printf("no such dir\n");
+				free(pentry);
+				en->short_name[0]='\0';
+				en->FirstCluster=0;
+				return -1;
+			}
+			++tmpno;
+			fathertmp[tmpno] = tentry;
+			tentry = pentry;
+		}
+		if (dir[i]=='\0') break;
+		++i;
+	}
+	if (tentry!=NULL) *en=*tentry; else en->FirstCluster=1;
 	return 1;
+}
+
+/*
+*参数：dir，类型：char ; en，类型：Entry
+*返回值：1，成功；-1，失败, en->short_name==""
+*功能：get father目录
+*/
+int getfPath(struct Entry * en, char *dir, int mode)
+{
+	struct Entry *pentry;
+	int ret,i,j;
+	char t[15];
+
+	if (strlen(dir)<=0) 
+	{
+		en->short_name[0]='\0';
+		en->FirstCluster=0;
+		printf("path not found.\n");
+		return -1;
+	}
+	if (*dir=='/') 
+	{
+		tentry=NULL;
+		tmpno=0;
+		fathertmp[0]=NULL;
+		i=1;
+	}else 
+	{
+		tentry=curdir;
+		for (i=0;i<=dirno;++i) fathertmp[i]=fatherdir[i];
+			tmpno=dirno;
+		i=0;
+	}
+	while (1)
+	{
+		j=0;
+		while (dir[i]&&dir[i]!='/'&&j<14) t[j++]=dir[i++];
+		if (j>11) 
+		{
+			en->short_name[0]='\0';
+			en->FirstCluster=0;
+			printf("path not found.\n");
+			return -1;
+		}
+		if (dir[i]=='/'||dir[i]=='\0')
+		{
+			t[j]='\0';
+		}
+		/*返回上一级目录*/
+		if(!strcmp(t,"..") && tentry!=NULL)
+		{
+			tentry = fathertmp[tmpno];
+			--tmpno; 
+		}
+
+		if (strcmp(t,".")!=0&&strcmp(t,"..")!=0&&t[0]!='\0') 
+		{
+			pentry = (struct Entry*)malloc(sizeof(struct Entry));
+
+			if (dir[i]=='\0') ret = ScanEntryIn(t,pentry,3,tentry);
+			else ret = ScanEntryIn(t,pentry,1,tentry);
+			if(ret < 0)
+			{
+				if (dir[i]=='\0'||mode==1&&dir[i]=='/'&&dir[i+1]=='\0') 
+				{
+					if (tentry==NULL)
+					{
+						en->FirstCluster=1;					
+					}
+					else *en=*tentry;
+					tentry=pentry;
+					strcpy(tentry->short_name,t);
+					return 1;
+				}
+				//printf("no such dir\n");
+				free(pentry);
+				en->short_name[0]='\0';
+				en->FirstCluster=0;
+				printf("path not found.\n");
+				return -1;
+			}
+			++tmpno;
+			fathertmp[tmpno] = tentry;
+			tentry = pentry;
+		}
+		if (dir[i]=='\0') break;
+		++i;
+	}
+	printf("file or dir exists.\n");
+	en->short_name[0]='\0';
+	en->FirstCluster=0;	
+	return -1;
 }
 
 /*
@@ -428,29 +622,77 @@ int ReadFat()
 
 /*
 *参数：filename，类型：char
+*参数：mode，类型：int
 *返回值：1，成功；-1，失败
-*功能;删除当前目录下的文件
+*功能;删除当前目录下的文件or dir
 */
-int fd_df(char *filename)
+int fd_df(struct Entry * where, int addr, int size, int mode)
 {
 	struct Entry *pentry;
-	int ret;
+	int ret, curClu, cluster_addr, offset;
 	unsigned char c;
 	unsigned short seed,next;
+	c=0xe5;
 
-	pentry = (struct Entry*)malloc(sizeof(struct Entry));
-
-	/*扫描当前目录查找文件*/
-	ret = ScanEntry(filename,pentry,0);
-	if(ret<0)
+	if (where->FirstCluster==1)
 	{
-		printf("no such file\n");
-		free(pentry);
-		return -1;
+		printf("rm: attempt to delete root dir \n");
+		return -1;		
 	}
+	if (where->short_name[0]=='\0')
+	{
+		if (mode) printf("rm: no such dir.\n");
+		else {
+			printf("rm: the target is not a file.\n");
+		}
+		return -1;				
+	}
+	if (where->readonly)
+	{
+		printf("rm: attempt to delete readonly file or dir '%s'\n",where->short_name);
+		return -1;						
+	}
+	if (where->subdir) {
+		pentry=(struct Entry* )malloc(sizeof(struct Entry));
+		curClu=where->FirstCluster;
+		while (1) {
+			cluster_addr = DATA_OFFSET + (curClu-2) * CLUSTER_SIZE ;
+			if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
+				perror("lseek cluster_addr failed");
+
+			offset = cluster_addr;
+
+			/*只读一簇的内容*/
+			while(offset<cluster_addr +CLUSTER_SIZE)
+			{
+				ret = GetEntry(pentry);
+				if (ret>0)
+				{
+					if (strcmp(pentry->short_name,".")!=0&&strcmp(pentry->short_name,"..")!=0) 
+						fd_df(pentry,offset,abs(ret),pentry->subdir);
+					else {
+						if(lseek(fd,offset,SEEK_SET)<0)
+							perror("lseek fd_df failed");
+						if(write(fd,&c,1)<0)
+							perror("write failed");
+					}
+					if(lseek(fd,offset+abs(ret),SEEK_SET)<0)
+						perror("lseek fd_df failed");
+				}
+				offset += abs(ret);
+			}
+
+			curClu=fatbuf[curClu<<1]+(fatbuf[(curClu<<1)+1]<<8);
+			if (curClu==0xffff) break;
+		}
+	}
+
+
+	pentry=where;
 
 	/*清除fat表项*/
 	seed = pentry->FirstCluster;
+	if (seed>1)
 	while((next = GetFatCluster(seed))!=0xffff)
 	{
 		ClearFatCluster(seed);
@@ -458,16 +700,18 @@ int fd_df(char *filename)
 
 	}
 
-	ClearFatCluster( seed );
+	if (seed>1) ClearFatCluster( seed );
 
 	/*清除目录表项*/
-	c=0xe5;
 
-
-	if(lseek(fd,ret-0x20,SEEK_SET)<0)
-		perror("lseek fd_df failed");
-	if(write(fd,&c,1)<0)
-		perror("write failed");  
+	size+=addr;
+	for (;addr<size;addr+=DIR_ENTRY_SIZE)
+	{
+		if(lseek(fd,addr,SEEK_SET)<0)
+			perror("lseek fd_df failed");
+		if(write(fd,&c,1)<0)
+			perror("write failed");
+	}
 
 
 	// if(lseek(fd,ret-0x40,SEEK_SET)<0)
@@ -475,51 +719,23 @@ int fd_df(char *filename)
 	// if(write(fd,&c,1)<0)
 	// 	perror("write failed");
 
-	free(pentry);
 	if(WriteFat()<0)
 		exit(1);
+
+
+
 	return 1;
 }
 
-
-/*
-*参数：filename，类型：char，创建文件的名称
-size，    类型：int，文件的大小
-*返回值：1，成功；-1，失败
-*功能：在当前目录下创建文件
-*/
-int fd_cf(char *filename,int size)
+unsigned short getEmptyCluster(int clustersize)
 {
+	unsigned short cluster, index;
+	int i=0;
 
-	struct Entry *pentry;
-	int ret,i=0,cluster_addr,offset, date, hms;
-	unsigned short cluster,clusterno[100];
-	unsigned char c[DIR_ENTRY_SIZE];
-	int index,clustersize;
-	unsigned char buf[DIR_ENTRY_SIZE];
-	pentry = (struct Entry*)malloc(sizeof(struct Entry));
-	time_t now;
-	struct tm *timenow;
-
-	time(&now);
-	timenow=localtime(&now);
-	//printf("%d\n", timenow->tm_wday);
-	date = ((timenow->tm_year - 80)<<9) | ((timenow->tm_mon+1)<<5) | timenow->tm_mday;
-	hms = ((timenow->tm_hour)<<11) | (timenow->tm_min<<5) | (timenow->tm_sec>>1);
-
-	clustersize = (size / (CLUSTER_SIZE));
-
-	if(size % (CLUSTER_SIZE) != 0)
-		clustersize ++;
-
-	//扫描根目录，是否已存在该文件名
-	ret = ScanEntry(filename,pentry,0);
-	if (ret<0)
-	{
 		/*查询fat表，找到空白簇，保存在clusterno[]中*/
-		for(cluster=2;cluster<1000;cluster++)
+		for(cluster=2;cluster<(bdptor.SectorsPerFAT<<8);cluster++)
 		{
-			index = cluster *2;
+			index = cluster<<1;
 			if(fatbuf[index]==0x00&&fatbuf[index+1]==0x00)
 			{
 				clusterno[i] = cluster;
@@ -531,11 +747,12 @@ int fd_cf(char *filename,int size)
 			}
 
 		}
+		if (i<clustersize) return -1;
 
 		/*在fat表中写入下一簇信息*/
 		for(i=0;i<clustersize-1;i++)
 		{
-			index = clusterno[i]*2;
+			index = clusterno[i]<<1;
 
 			fatbuf[index] = (clusterno[i+1] &  0x00ff);
 			fatbuf[index+1] = ((clusterno[i+1] & 0xff00)>>8);
@@ -543,13 +760,38 @@ int fd_cf(char *filename,int size)
 
 		}
 		/*最后一簇写入0xffff*/
-		index = clusterno[i]*2;
+		index = clusterno[i]<<1;
 		fatbuf[index] = 0xff;
 		fatbuf[index+1] = 0xff;
+		return clusterno[0];
+}
 
-		if(curdir==NULL)  /*往根目录下写文件*/
-		{ 
 
+int findAndWrite(int size,int mode, int fc, int newFC)
+{
+	char * filename=tentry->short_name;
+	int ret,i=0,cluster_addr,offset, date, hms;
+	unsigned char c[DIR_ENTRY_SIZE];
+	int index,clustersize,tmp, curClu;
+	unsigned char buf[DIR_ENTRY_SIZE];
+	time_t now;
+	struct tm *timenow;
+	time(&now);
+	timenow=localtime(&now);
+	//printf("%d\n", timenow->tm_wday);
+	date = ((timenow->tm_year - 80)<<9) | ((timenow->tm_mon+1)<<5) | timenow->tm_mday;
+	hms = ((timenow->tm_hour)<<11) | (timenow->tm_min<<5) | (timenow->tm_sec>>1);
+
+	if (newFC<0)
+	{
+		clustersize = (size / (CLUSTER_SIZE));
+		if (size==0||size % (CLUSTER_SIZE) != 0) ++clustersize;
+
+		index=getEmptyCluster(clustersize);
+	}
+	else index=newFC;
+	if (fc==1)
+	{
 			if((ret= lseek(fd,ROOTDIR_OFFSET,SEEK_SET))<0)
 				perror("lseek ROOTDIR_OFFSET failed");
 			offset = ROOTDIR_OFFSET;
@@ -573,7 +815,7 @@ int fd_cf(char *filename,int size)
 
 				/*找出空目录项或已删除的目录项*/ 
 				else
-				{       
+				{
 					offset = offset-abs(ret);     
 					for(i=0;i<=strlen(filename);i++)
 					{
@@ -582,7 +824,7 @@ int fd_cf(char *filename,int size)
 					for(;i<=10;i++)
 						c[i]=' ';
 
-					c[11] = 0x01;
+					if (mode) c[11] = 0x10; else c[11] = 0x00;
 
 					c[24] = date&0xFF;
 					c[25] = date>>8;
@@ -590,8 +832,8 @@ int fd_cf(char *filename,int size)
 					c[23] = hms>>8;
 
 					/*写第一簇的值*/
-					c[26] = (clusterno[0] &  0x00ff);
-					c[27] = ((clusterno[0] & 0xff00)>>8);
+					c[26] = (index &  0x00ff);
+					c[27] = ((index & 0xff00)>>8);
 
 					/*写文件的大小*/
 					c[28] = (size &  0x000000ff);
@@ -607,22 +849,26 @@ int fd_cf(char *filename,int size)
 
 
 
-					free(pentry);
 					if(WriteFat()<0)
 						exit(1);
 
-					return 1;
+					return index;
 				}
 
 			}
-		}
-		else 
-		{
-			cluster_addr = (curdir->FirstCluster -2 )*CLUSTER_SIZE + DATA_OFFSET;
-			if((ret= lseek(fd,cluster_addr,SEEK_SET))<0)
+
+	}
+	else {
+		curClu=fc;
+		while (1) {
+			cluster_addr = DATA_OFFSET + (curClu-2) * CLUSTER_SIZE ;
+			if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
 				perror("lseek cluster_addr failed");
+
 			offset = cluster_addr;
-			while(offset < cluster_addr + CLUSTER_SIZE)
+
+			/*只读一簇的内容*/
+			while(offset<cluster_addr +CLUSTER_SIZE)
 			{
 				if((ret = read(fd,buf,DIR_ENTRY_SIZE))<0)
 					perror("read entry failed");
@@ -648,15 +894,15 @@ int fd_cf(char *filename,int size)
 					for(;i<=10;i++)
 						c[i]=' ';
 
-					c[11] = 0x01;
+					if (mode) c[11] = 0x10; else c[11]=0x00;
 
 					c[24] = date&0xFF;
 					c[25] = date>>8;
 					c[22] = hms&0xFF;
 					c[23] = hms>>8;
 
-					c[26] = (clusterno[0] &  0x00ff);
-					c[27] = ((clusterno[0] & 0xff00)>>8);
+					c[26] = (index &  0x00ff);
+					c[27] = ((index & 0xff00)>>8);
 
 					c[28] = (size &  0x000000ff);
 					c[29] = ((size & 0x0000ff00)>>8);
@@ -668,71 +914,248 @@ int fd_cf(char *filename,int size)
 					if(write(fd,&c,DIR_ENTRY_SIZE)<0)
 						perror("write failed");
 
-
-
-
-					free(pentry);
 					if(WriteFat()<0)
 						exit(1);
 
-					return 1;
+					return index;
 				}
 
+
 			}
+			if (fatbuf[curClu<<1]+(fatbuf[(curClu<<1)+1]<<8)==0xffff) 
+			{
+				tmp=getEmptyCluster(1);
+				if (tmp<0) 
+				{
+					break;
+				}
+				else {
+					fatbuf[curClu<<1]=tmp&0xff;
+					fatbuf[(curClu<<1)+1]=(tmp&0xff00)>>8;
+				}
+			}
+			curClu=fatbuf[curClu<<1]+(fatbuf[(curClu<<1)+1]<<8);
 		}
 	}
-	else
+
+	return 0;
+}
+
+int giveAndWrite(int size,int mode, int fc)
+{
+	return findAndWrite(size,mode,fc,-1);
+}
+
+/*
+*参数：filename，类型：char，创建文件的名称
+size，    类型：int，文件的大小
+*返回值：1，成功；-1，失败
+*功能：在当前目录下创建文件
+*/
+int fd_cf(int size, int mode)
+{
+	int newClu;
+	if (path->FirstCluster==0&&path->short_name[0]=='\0'||!strcmp(tentry->short_name,".")||!strcmp(tentry->short_name,"..")) 
 	{
-		printf("This filename is exist\n");
-		free(pentry);
+		printf("Invalid path\n");
 		return -1;
 	}
-	return 1;
+		if(path->FirstCluster==1)  /*往根目录下写文件*/
+		{
+			if ((newClu=giveAndWrite(size,mode,path->FirstCluster))==0)
+				printf("Root dir is full.\n");
+			else 
+			{
+				if (mode) 
+				{
+					strcpy(tentry->short_name,".");
+					findAndWrite(0,mode,newClu,newClu);
+					strcpy(tentry->short_name,"..");
+					findAndWrite(0,mode,newClu,path->FirstCluster);
+				}
+				return 1;
+			}
+		}
+		else 
+		{
+			if ((newClu=giveAndWrite(size,mode,path->FirstCluster))==0)
+				printf("Insufficient memory.\n");
+			else 
+			{
+				if (mode) 
+				{
+					strcpy(tentry->short_name,".");
+					findAndWrite(0,mode,newClu,newClu);
+					strcpy(tentry->short_name,"..");
+					findAndWrite(0,mode,newClu,path->FirstCluster);
+				}				
+				return 1;
+			}
+		}
+	return -1;
+}
 
+int fd_ef(struct Entry * en, char * str, int mode)
+{
+	return 1;
 }
 
 void do_usage()
 {
-	printf("please input a command, including followings:\n\tls\t\t\tlist all files\n\tcd <dir>\t\tchange direcotry\n\tcf <filename> <size>\tcreate a file\n\tdf <file>\t\tdelete a file\n\texit\t\t\texit this system\n");
+	printf("please input a command, including followings:\n\tls [-l] [path]\t\t\tlist all files\n\tcd <dir>\t\t\tchange direcotry\n\ttouch <filename>\t\tcreate a empty file\n\tmkdir <dirname>\t\t\tcreate a empty dir\n\trm [-r] <file>\t\t\tdelete a file or direcotry\n\tcw [words|-a words|-f file] <file>\tedit or copy a file\n\texit\t\t\t\texit this system\n");
 }
 
+int getCMD(char * cmd, char *op)
+{
+	char c;
+	int st=-1,i=0;
+	while (scanf("%c",&c)!=EOF&&c!='\n')
+	{
+		if (c!=' ')
+		{
+			if (st<0)
+			{
+				cmd[i++]=c;
+			}
+			else
+			{
+				op[(st<<7)+(i++)]=c;
+			}
+		}
+		else if (i>0) {
+			if (st<0) cmd[i]='\0'; else op[(st<<7)+i]='\0';
+			++st;
+			i=0;
+			if (st>=4) break;
+		}
+	}
+	if (i>0) {
+		if (st<0) cmd[i]='\0'; else op[(st<<7)+i]='\0';
+		++st;
+		i=0;
+	}
+	return st+1;
+}
 
 int main()
 {
 	char input[10];
-	int size=0;
-	char name[12];
+	char op[512];
+	int size=0,cnt;
 	if((fd = open(DEVNAME,O_RDWR))<0)
 		perror("open failed");
 	ScanBootSector();
-	if(ReadFat()<0)
-		exit(1);
 	do_usage();
+	path=(struct Entry *)malloc(sizeof(struct Entry));
 	while (1)
 	{
 		printf(">");
-		scanf("%s",input);
-
+		if (!(cnt=getCMD(input,op))) continue;
+		if (ReadFat()<0)
+			exit(1);
+		if (curdir!=NULL&&curdir->FirstCluster>1&&fatbuf[curdir->FirstCluster<<1]==0x00&&fatbuf[(curdir->FirstCluster<<1)+1]==0x00)
+		{
+			curdir=NULL;
+			dirno=0;
+		}
 		if (strcmp(input, "exit") == 0)
 			break;
-		else if (strcmp(input, "ls") == 0)
-			fd_ls();
-		else if(strcmp(input, "cd") == 0)
+		else if (strcmp(input, "ls") == 0 && cnt<=3)
 		{
-			scanf("%s", name);
-			fd_cd(name);
+			if (cnt==1) fd_ls(0,curdir);
+			if (cnt==2) {
+				if (strcmp(op,"-l")==0)
+					fd_ls(1,curdir);
+				else
+				{
+					getPath(path,op,1);
+					fd_ls(0,path);
+				}
+			}
+			if (cnt==3) {
+				if (strcmp(op,"-l")==0)
+				{
+					getPath(path,op+128,1);
+					fd_ls(1,path);
+				}
+				else if (strcmp(op+128,"-l")==0)
+				{
+					getPath(path,op,1);
+					fd_ls(1,path);
+				}
+			}
 		}
-		else if(strcmp(input, "df") == 0)
+		else if(strcmp(input, "cd") == 0 && cnt==2)
 		{
-			scanf("%s", name);
-			fd_df(name);
+			getPath(path,op,1);
+			if (path->FirstCluster==1)
+			{
+				curdir=NULL;
+				dirno=0;
+			}
+			else if (path->short_name[0]!='\0')
+			{
+				curdir=(struct Entry*)malloc(sizeof(struct Entry));
+				*curdir=*path;
+				for (cnt=0;cnt<=tmpno;++cnt) 
+				{
+					fatherdir[cnt]=fathertmp[cnt];
+				}
+				dirno=tmpno;
+			}
+			else printf("cd: no such dir\n");
 		}
-		else if(strcmp(input, "cf") == 0)
+		else if(strcmp(input, "rm") == 0 && cnt<=3&&cnt>1)
 		{
-			scanf("%s", name);
-			scanf("%s", input);
-			size = atoi(input);
-			fd_cf(name,size);
+			if (cnt==2)
+			{
+				getPath(path,op,0);
+				fd_df(path,tmpaddr,tmpsize,0);
+			}
+			if (cnt==3) {
+				if (strcmp(op,"-r")==0)
+				{
+					getPath(path,op+128,1);
+					fd_df(path,tmpaddr,tmpsize,1);
+				}
+				else if (strcmp(op+128,"-r")==0)
+				{
+					getPath(path,op,1);
+					fd_df(path,tmpaddr,tmpsize,1);
+				}
+				else printf("rm: invalid sentence\n");
+			}
+		}
+		else if(strcmp(input, "cw") == 0 && cnt<=4&&cnt>2)
+		{
+			if (cnt==3)
+			{
+				getPath(path,op+128,0);
+				fd_ef(path,op,0);
+			}
+			if (cnt==4) {
+				if (strcmp(op,"-a")==0)
+				{
+					getPath(path,op+256,0);
+					fd_ef(path,op+128,1);
+				}
+				else if (strcmp(op,"-f")==0)
+				{
+					getPath(path,op+256,0);
+					fd_ef(path,op+128,2);
+				}
+				else printf("cw: invalid sentence\n");
+			}
+		}
+		else if(strcmp(input, "touch") == 0 && cnt==2)
+		{
+			getfPath(path,op,0);
+			fd_cf(0,0);
+		}
+		else if(strcmp(input, "mkdir") == 0 && cnt==2)
+		{
+			getfPath(path,op,1);
+			fd_cf(0,1);
 		}
 		else
 			do_usage();
@@ -740,6 +1163,3 @@ int main()
 
 	return 0;
 }
-
-
-

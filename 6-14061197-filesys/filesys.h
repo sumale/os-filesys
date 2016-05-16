@@ -2,7 +2,7 @@
 #define FILESYS_H
 #include<stddef.h>
 #include<time.h>
-#define DEVNAME "/dev/sdbv"
+#define DEVNAME "/home/sdbv"
 #define DIR_ENTRY_SIZE 32
 #define SECTOR_SIZE 512
 #define CLUSTER_SIZE ((bdptor.SectorsPerCluster)<<9)
@@ -66,10 +66,9 @@ struct Entry{
 	unsigned char archive:1;
 };
 
-int fd_ls();
-int fd_cd(char *dir);
-int fd_df(char *file_name);
-int fd_cf(char *file_name,int size);
+int fd_ls(int detail, struct Entry * curdir);
+int fd_df(struct Entry * where, int addr, int size, int mode);
+int fd_cf(int size, int mode);
 
 void findDate(unsigned short *year,
 			unsigned short *month,
@@ -93,10 +92,14 @@ void ClearFatCluster(unsigned short cluster);
 int fd;
 struct BootDescriptor_t bdptor;
 struct Entry *curdir = NULL;
-int dirno = 0;/*代表目录的层数*/
-struct Entry* fatherdir[10];
-
-unsigned char fatbuf[512*250];
+struct Entry *path = NULL;
+struct Entry *tentry = NULL;
+int dirno = 0, tmpno=0;/*代表目录的层数*/
+int tmpaddr,tmpsize;
+struct Entry* fatherdir[16];
+struct Entry* fathertmp[16];
+unsigned short clusterno[10000];
+unsigned char *fatbuf;
 
 #endif
 
