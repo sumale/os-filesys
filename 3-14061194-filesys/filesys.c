@@ -12,6 +12,14 @@
 #define RevByte(low,high) ((high)<<8|(low))
 #define RevWord(lowest,lower,higher,highest) ((highest)<< 24|(higher)<<16|(lower)<<8|lowest) 
 
+int fd;
+struct BootDescriptor_t bdptor;
+struct Entry *curdir=NULL;
+int dirno=0;
+struct Entry* fatherdir[10];
+
+unsigned char *fatbuf;
+
 /*
 *功能：打印启动项记录
 */
@@ -30,14 +38,17 @@ void ScanBootSector()
 	bdptor.SectorsPerCluster = buf[0x0d];
 	bdptor.ReservedSectors = RevByte(buf[0x0e],buf[0x0f]);
 	bdptor.FATs = buf[0x10];
-	bdptor.RootDirEntries = RevByte(buf[0x11],buf[0x12]);    
-	bdptor.LogicSectors = RevWord(buf[0x20],buf[0x21],buf[0x22],buf[0x23]);//RevByte(buf[0x13],buf[0x14]);
+	bdptor.RootDirEntries = RevByte(buf[0x11],buf[0x12]);
+	bdptor.LogicSectors = RevByte(buf[0x13],buf[0x14]);
+	if(!bdptor.LogicSectors) bdptor.LogicSectors = RevWord(buf[0x20],buf[0x21],buf[0x22],buf[0x23]);//RevByte(buf[0x13],buf[0x14]);
 	bdptor.MediaType = buf[0x15];
 	bdptor.SectorsPerFAT = RevByte( buf[0x16],buf[0x17] );
 	bdptor.SectorsPerTrack = RevByte(buf[0x18],buf[0x19]);
 	bdptor.Heads = RevByte(buf[0x1a],buf[0x1b]);
 	bdptor.HiddenSectors = RevByte(buf[0x1c],buf[0x1d]);
 
+	fatbuf=(unsigned char*)malloc(sizeof(unsigned char)*FAT_SIZE);
+	//printf("ROOTDIR_OFFSET: %x\n",FAT_ONE_OFFSET);
 
 	printf("Oem_name \t\t%s\n"
 		"BytesPerSector \t\t%d\n"
@@ -217,31 +228,34 @@ int fd_ls()
 
 	else /*显示子目录*/
 	{
-		cluster_addr = DATA_OFFSET + (curdir->FirstCluster-2) * CLUSTER_SIZE ;
-		if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
-			perror("lseek cluster_addr failed");
+		int current_cluster;
+		for(current_cluster=curdir->FirstCluster;current_cluster!=0xffff;current_cluster=RevByte(fatbuf[current_cluster<<1],fatbuf[current_cluster<<1|1])) {
+			cluster_addr = DATA_OFFSET + (current_cluster/*curdir->FirstCluster*/-2) * CLUSTER_SIZE ;
+			if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
+				perror("lseek cluster_addr failed");
 
-		offset = cluster_addr;
+			offset = cluster_addr;
 
-		/*只读一簇的内容*/
-		while(offset<cluster_addr +CLUSTER_SIZE)
-		{
-			ret = GetEntry(&entry);
-			offset += abs(ret);
-			if(ret > 0)
+			/*只读一簇的内容*/
+			while(offset<cluster_addr +CLUSTER_SIZE)
 			{
-				printf("%12s\t"
-					"%d:%d:%d\t"
-					"%d:%d:%d   \t"
-					"%d\t"
-					"%d\t\t"
-					"%s\n",
-					entry.short_name,
-					entry.year,entry.month,entry.day,
-					entry.hour,entry.min,entry.sec,
-					entry.FirstCluster,
-					entry.size,
-					(entry.subdir) ? "dir":"file");
+				ret = GetEntry(&entry);
+				offset += abs(ret);
+				if(ret > 0)
+				{
+					printf("%12s\t"
+						"%d:%d:%d\t"
+						"%d:%d:%d   \t"
+						"%d\t"
+						"%d\t\t"
+						"%s\n",
+						entry.short_name,
+						entry.year,entry.month,entry.day,
+						entry.hour,entry.min,entry.sec,
+						entry.FirstCluster,
+						entry.size,
+						(entry.subdir) ? "dir":"file");
+				}
 			}
 		}
 	}
@@ -288,20 +302,23 @@ int ScanEntry (char *entryname,struct Entry *pentry,int mode)
 	/*扫描子目录*/
 	else  
 	{
-		cluster_addr = DATA_OFFSET + (curdir->FirstCluster -2)*CLUSTER_SIZE;
-		if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
-			perror("lseek cluster_addr failed");
-		offset= cluster_addr;
+		int current_cluster;
+		for(current_cluster=curdir->FirstCluster;current_cluster!=0xffff;current_cluster=RevByte(fatbuf[current_cluster<<1],fatbuf[current_cluster<<1|1])) {
+			cluster_addr = DATA_OFFSET + (current_cluster/*curdir->FirstCluster*/-2) * CLUSTER_SIZE ;
+			if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
+				perror("lseek cluster_addr failed");
+			offset= cluster_addr;
 
-		while(offset<cluster_addr + CLUSTER_SIZE)
-		{
-			ret= GetEntry(pentry);
-			offset += abs(ret);
-			if(pentry->subdir == mode &&!strcmp((char*)pentry->short_name,uppername))
-				return offset;
+			while(offset<cluster_addr + CLUSTER_SIZE)
+			{
+				ret= GetEntry(pentry);
+				offset += abs(ret);
+				if(pentry->subdir == mode &&!strcmp((char*)pentry->short_name,uppername))
+					return offset;
 
 
 
+			}
 		}
 		return -1;
 	}
@@ -679,6 +696,9 @@ void do_usage()
 	printf("please input a command, including followings:\n\tls\t\t\tlist all files\n\tcd <dir>\t\tchange direcotry\n\tcf <filename> <size>\tcreate a file\n\tdf <file>\t\tdelete a file\n\texit\t\t\texit this system\n");
 }
 
+int fd_mkdir(const char* name) {
+	puts("not implemented");	
+}
 
 int main()
 {
@@ -716,6 +736,10 @@ int main()
 			scanf("%s", input);
 			size = atoi(input);
 			fd_cf(name,size);
+		}
+		else if(strcmp(input,"mkdir")==0) {
+			scanf("%s",name);
+			fd_mkdir(name);
 		}
 		else
 			do_usage();

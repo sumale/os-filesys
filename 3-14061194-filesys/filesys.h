@@ -6,9 +6,10 @@
 #define DIR_ENTRY_SIZE (32)
 #define SECTOR_SIZE 512 // Only 512B Sector size is supported.
 #define CLUSTER_SIZE (bdptor.BytesPerSector*bdptor.SectorsPerCluster)//512*4
-#define FAT_ONE_OFFSET (SECTOR_SIZE*(1+bdptor.ReservedSectors))
-#define FAT_TWO_OFFSET (FAT_ONE_OFFSET+bdptor.SectorsPerFAT*bdptor.BytesPerSector)//512+250*512
-#define ROOTDIR_OFFSET (FAT_TWO_OFFSET+bdptor.SectorsPerFAT*bdptor.BytesPerSector)//512+250*512+250*512+512
+#define FAT_SIZE (bdptor.SectorsPerFAT*bdptor.BytesPerSector)
+#define FAT_ONE_OFFSET (SECTOR_SIZE*(bdptor.ReservedSectors))
+#define FAT_TWO_OFFSET (FAT_ONE_OFFSET+FAT_SIZE)//512+250*512
+#define ROOTDIR_OFFSET (FAT_TWO_OFFSET+FAT_SIZE)//512+250*512+250*512+512
 #define DATA_OFFSET (ROOTDIR_OFFSET+bdptor.RootDirEntries*DIR_ENTRY_SIZE)//512+250*512+250*512+512*32
 
            
@@ -70,6 +71,7 @@ int fd_ls();
 int fd_cd(char *dir);
 int fd_df(char *file_name);
 int fd_cf(char *file_name,int size);
+int fd_mkdir(const char* name);
 
 void findDate(unsigned short *year,
 			  unsigned short *month,
@@ -90,13 +92,15 @@ void FileNameFormat(unsigned char *name);
 unsigned short GetFatCluster(unsigned short prev);
 void ClearFatCluster(unsigned short cluster);
 
+#if 0
 int fd;
 struct BootDescriptor_t bdptor;
 struct Entry *curdir = NULL;
 int dirno = 0;/*代表目录的层数*/
 struct Entry* fatherdir[10];
 
-unsigned char fatbuf[512*250];  
+unsigned char fatbuf[FAT_SIZE];
+#endif
 
 #endif
 
