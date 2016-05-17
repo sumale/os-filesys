@@ -1,14 +1,15 @@
+
 #ifndef FILESYS_H
 #define FILESYS_H
 #include<stddef.h>
-#define DEVNAME "/dev/sdb1"                         
-#define DIR_ENTRY_SIZE 32
-#define SECTOR_SIZE 512
-#define CLUSTER_SIZE 512*4                         
-#define FAT_ONE_OFFSET 512                       
-#define FAT_TWO_OFFSET 512+250*512                       
-#define ROOTDIR_OFFSET 512+250*512+250*512+512                     
-#define DATA_OFFSET 512+250*512+250*512+512*32        
+#define DEVNAME "data"                         
+#define DIR_ENTRY_SIZE (32)
+#define SECTOR_SIZE 512 // Only 512B Sector size is supported.
+#define CLUSTER_SIZE (bdptor.BytesPerSector*bdptor.SectorsPerCluster)//512*4
+#define FAT_ONE_OFFSET (SECTOR_SIZE*(1+bdptor.ReservedSectors))
+#define FAT_TWO_OFFSET (FAT_ONE_OFFSET+bdptor.SectorsPerFAT*bdptor.BytesPerSector)//512+250*512
+#define ROOTDIR_OFFSET (FAT_TWO_OFFSET+bdptor.SectorsPerFAT*bdptor.BytesPerSector)//512+250*512+250*512+512
+#define DATA_OFFSET (ROOTDIR_OFFSET+bdptor.RootDirEntries*DIR_ENTRY_SIZE)//512+250*512+250*512+512*32
 
            
 
@@ -37,7 +38,7 @@ struct BootDescriptor_t{
 	int ReservedSectors;       /*0x0e-0x0f*/
 	int FATs;                  /*0x10*/
 	int RootDirEntries;        /*0x11-0x12*/
-	int LogicSectors;          /*0x13-0x14*/
+	int LogicSectors;          /*0x13-0x14*/ // updated to 0x20-0x23
 	int MediaType;             /*0x15*/
 	int SectorsPerFAT;         /*0x16-0x17*/
 	int SectorsPerTrack;       /*0x18-0x19*/
