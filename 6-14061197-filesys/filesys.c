@@ -997,6 +997,104 @@ int fd_cf(int size, int mode)
 
 int fd_ef(struct Entry * en, char * str, int mode)
 {
+	unsigned int n,zero=0x00000000,cnt,k,i,tmp;
+	unsigned char c=0x00;
+	if (en->FirstCluster==1||en->subdir==1||en->short_name[0]=='\0') 
+	{
+		printf("cw: Invalid target.\n");
+		return -1;
+	}
+	n=en->FirstCluster;
+	if (n==0) {
+		if ((n=getEmptyCluster(1))<0) 
+		{
+			printf("Insufficient memory.\n");
+			return -1;
+		}
+		if(lseek(fd,tmpaddr+tmpsize-6,SEEK_SET)<0)
+			perror("lseek fd_ef failed");
+		c=n&0xFF;
+		if(write(fd,&c,1)<0)
+			perror("write failed");		
+		c=(n&0xFF00)>>8;
+		if(write(fd,&c,1)<0)
+			perror("write failed");	
+		if(write(fd,&zero,4)<0)
+			perror("write failed");	
+		en->size=0;
+		en->FirstCluster=n;
+	}
+	if (fatbuf[n<<1]+(fatbuf[(n<<1)+1]<<8)<2) return -1;
+	if (mode<2)
+	{
+		if (!mode)
+		{
+			if(lseek(fd,tmpaddr+tmpsize-4,SEEK_SET)<0)
+				perror("lseek fd_ef failed");
+			if(write(fd,&zero,4)<0)
+				perror("write failed");
+			for (n=en->FirstCluster;fatbuf[n<<1]+(fatbuf[(n<<1)+1]<<8)!=0xffff;n=fatbuf[n<<1]+(fatbuf[(n<<1)+1]<<8))
+			{
+				fatbuf[n<<1]=0x00;
+				fatbuf[(n<<1)+1]=0x00;
+			}
+			fatbuf[n<<1]=0x00;
+			fatbuf[(n<<1)+1]=0x00;
+			n=en->FirstCluster;
+			fatbuf[n<<1]=0xff;
+			fatbuf[(n<<1)+1]=0xff;
+			en->size=0;
+		}
+		for (n=en->FirstCluster,cnt=0;fatbuf[n<<1]+(fatbuf[(n<<1)+1]<<8)!=0xffff;n=fatbuf[n<<1]+(fatbuf[(n<<1)+1]<<8),++cnt);
+		++cnt;
+		if (cnt*CLUSTER_SIZE<en->size) {
+			en->size=cnt*CLUSTER_SIZE;
+		}
+		cnt=strlen(str);
+		k=en->size;
+		for (n=en->FirstCluster;fatbuf[n<<1]+(fatbuf[(n<<1)+1]<<8)!=0xffff&&k>=CLUSTER_SIZE;n=fatbuf[n<<1]+(fatbuf[(n<<1)+1]<<8),k-=CLUSTER_SIZE);
+		tmp=DATA_OFFSET + (n-2) * CLUSTER_SIZE + k;
+		if(lseek(fd,tmp,SEEK_SET)<0)
+			perror("lseek fd_ef failed");
+		for (i=0;i<cnt;++i)
+		{
+			if (k>=CLUSTER_SIZE)
+			{
+				if (fatbuf[n<<1]+(fatbuf[(n<<1)+1]<<8)==0xffff)
+				{
+					tmp=getEmptyCluster(1);
+					if (tmp<0) {
+						printf("Insufficient memory.\n");
+						if(WriteFat()<0)
+							exit(1);
+						return -1;
+					}
+					fatbuf[n<<1]=0xff&tmp;
+					fatbuf[(n<<1)+1]=(0xff00&tmp)>>8;
+					n=tmp;
+				}
+				else n=fatbuf[n<<1]+(fatbuf[(n<<1)+1]<<8);
+				k-=CLUSTER_SIZE;
+				tmp=DATA_OFFSET + (n-2) * CLUSTER_SIZE + k;
+				if(lseek(fd,tmp,SEEK_SET)<0)
+					perror("lseek fd_ef failed");
+			}
+			if(write(fd,&str[i],1)<0)
+				perror("write failed");
+			++k;
+			++en->size;
+		}
+		if(lseek(fd,tmpaddr+tmpsize-4,SEEK_SET)<0)
+			perror("lseek fd_ef failed");
+		if(write(fd,&en->size,4)<0)
+			perror("write failed");		
+	}
+	else if (mode==2)
+	{
+		printf("this module is coding...\n");
+	}
+	if(WriteFat()<0)
+		exit(1);
 	return 1;
 }
 
