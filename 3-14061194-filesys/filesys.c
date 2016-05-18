@@ -270,6 +270,7 @@ int fd_ls()
 *返回值：偏移值大于0，则成功；-1，则失败
 *功能：搜索当前目录，查找文件或目录项
 */
+int magic;
 int ScanEntry (char *entryname,struct Entry *pentry,int mode)
 {
 	int ret,offset,i;
@@ -313,8 +314,10 @@ int ScanEntry (char *entryname,struct Entry *pentry,int mode)
 			{
 				ret= GetEntry(pentry);
 				offset += abs(ret);
-				if(pentry->subdir == mode &&!strcmp((char*)pentry->short_name,uppername))
+				if(pentry->subdir == mode &&!strcmp((char*)pentry->short_name,uppername)) {
+					magic=ret;
 					return offset;
+				}
 
 
 
@@ -339,16 +342,16 @@ int fd_cd(char *dir)
 
 	if(*dir=='/') { // absolute path
 		struct Entry* tmp=curdir;
-		//int pre_dirno=dirno;
+		int pre_dirno=dirno;
 		if(dir[1]=='/') {
 			puts("illegal input");
 			return -1;
 		}
-		curdir=NULL; //dirno=0;
+		curdir=NULL; dirno=0;
 		ret=fd_cd(dir+1);
 		if(ret<0) { //recover on failure
 			curdir=tmp;
-		//	dirno=pre_dirno;
+			dirno=pre_dirno;
 			return ret;
 		}
 		return 1;
@@ -406,8 +409,8 @@ int fd_cd(char *dir)
 	if(flag) {
 		ret=fd_cd(pi+1);
 		if(ret<0) { // recover changes on failure.
-			//curdir=fatherdir[dirno--];
-			curdir=tmp;
+			curdir=fatherdir[dirno--];
+			//curdir=tmp;
 			free(pentry);
 			return ret;
 		}
@@ -506,10 +509,11 @@ int ReadFat()
 int fd_df(char *filename)
 {
 	struct Entry *pentry,*tmp;
-	int ret;
+	int ret,i,j,k;
 	char *pi,*splitter;
 	unsigned char c;
 	unsigned short seed,next;
+	int start_cluster=-1,start_offs=-1,end_addr=-1;
 
 	tmp=curdir;
 	for(pi=filename,splitter=0;*pi;++pi)
