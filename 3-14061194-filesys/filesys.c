@@ -335,20 +335,60 @@ int fd_cd(char *dir)
 {
 	struct Entry *pentry;
 	int ret;
+	char *pi,flag=0;
+
+	if(*dir=='/') { // absolute path
+		struct Entry* tmp=curdir;
+		int pre_dirno=dirno;
+		if(dir[1]=='/') {
+			puts("illegal input");
+			return -1;
+		}
+		curdir=NULL; dirno=0;
+		ret=fd_cd(dir+1);
+		if(ret<0) { //recover on failure
+			curdir=tmp;
+			dirno=pre_dirno;
+			return ret;
+		}
+		return 1;
+	}
+
+	for(pi=dir;*pi;++pi)
+		if(*pi=='/') {
+			if(pi[1]=='/') {
+				puts("illegal input");
+				return -1;
+			}
+			*pi=0; flag=1;
+			break;
+		}
 
 	if(!strcmp(dir,"."))
 	{
+		if(flag) return fd_cd(pi+1);
 		return 1;
 	}
-	if(!strcmp(dir,"..") && curdir==NULL)
+	if(!strcmp(dir,"..") && curdir==NULL) {
+		if(flag) return fd_cd(pi+1);
 		return 1;
+	}
+
 	/*返回上一级目录*/
 	if(!strcmp(dir,"..") && curdir!=NULL)
 	{
+		struct Entry *tmp=curdir;
 		curdir = fatherdir[dirno];
 		dirno--; 
+		if(flag) ret=fd_cd(pi+1);
+		if(ret<0) { // recover changes on failure.
+			curdir=tmp;
+			++dirno;
+			return ret;
+		}
 		return 1;
 	}
+
 	pentry = (struct Entry*)malloc(sizeof(struct Entry));
 
 	ret = ScanEntry(dir,pentry,1);
@@ -361,6 +401,13 @@ int fd_cd(char *dir)
 	dirno ++;
 	fatherdir[dirno] = curdir;
 	curdir = pentry;
+
+	if(flag) ret=fd_cd(pi+1);
+	if(ret<0) { // recover changes on failure.
+		curdir=fatherdir[dirno--];
+		return ret;
+	}
+
 	return 1;
 }
 
