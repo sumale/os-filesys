@@ -16,7 +16,7 @@ int fd;
 struct BootDescriptor_t bdptor;
 struct Entry *curdir=NULL;
 int dirno=0;
-struct Entry* fatherdir[10];
+struct Entry* fatherdir[50];
 
 unsigned char *fatbuf;
 
@@ -333,22 +333,22 @@ int ScanEntry (char *entryname,struct Entry *pentry,int mode)
 */
 int fd_cd(char *dir)
 {
-	struct Entry *pentry;
+	struct Entry *pentry,*tmp;
 	int ret;
 	char *pi,flag=0;
 
 	if(*dir=='/') { // absolute path
 		struct Entry* tmp=curdir;
-		int pre_dirno=dirno;
+		//int pre_dirno=dirno;
 		if(dir[1]=='/') {
 			puts("illegal input");
 			return -1;
 		}
-		curdir=NULL; dirno=0;
+		curdir=NULL; //dirno=0;
 		ret=fd_cd(dir+1);
 		if(ret<0) { //recover on failure
 			curdir=tmp;
-			dirno=pre_dirno;
+		//	dirno=pre_dirno;
 			return ret;
 		}
 		return 1;
@@ -366,7 +366,7 @@ int fd_cd(char *dir)
 
 	if(!strcmp(dir,"."))
 	{
-		if(flag) return fd_cd(pi+1);
+		if(flag) return fd_cd(pi+1); // think carefully why this is correct
 		return 1;
 	}
 	if(!strcmp(dir,"..") && curdir==NULL) {
@@ -400,12 +400,20 @@ int fd_cd(char *dir)
 	}
 	dirno ++;
 	fatherdir[dirno] = curdir;
+	tmp=curdir;
 	curdir = pentry;
 
-	if(flag) ret=fd_cd(pi+1);
-	if(ret<0) { // recover changes on failure.
-		curdir=fatherdir[dirno--];
-		return ret;
+	if(flag) {
+		ret=fd_cd(pi+1);
+		if(ret<0) { // recover changes on failure.
+			//curdir=fatherdir[dirno--];
+			curdir=tmp;
+			free(pentry);
+			return ret;
+		}
+		//free(pentry);
+		//free(tmp);
+		return 1;
 	}
 
 	return 1;
@@ -497,12 +505,21 @@ int ReadFat()
 */
 int fd_df(char *filename)
 {
-	struct Entry *pentry;
+	struct Entry *pentry,*tmp;
 	int ret;
+	char *pi,*splitter;
 	unsigned char c;
 	unsigned short seed,next;
 
+	tmp=curdir;
+	for(pi=filename,splitter=0;*pi;++pi)
+		if(*pi=='/') splitter=pi;
+	if(splitter) {
+		*splitter=0;
+		changeDirTmp(filename);
+	}
 	pentry = (struct Entry*)malloc(sizeof(struct Entry));
+
 
 	/*扫描当前目录查找文件*/
 	ret = ScanEntry(filename,pentry,0);
@@ -746,6 +763,8 @@ void do_usage()
 int fd_mkdir(const char* name) {
 	puts("not implemented");	
 }
+
+
 
 int main()
 {
