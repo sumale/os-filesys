@@ -20,6 +20,72 @@ struct Entry* fatherdir[50];
 
 unsigned char *fatbuf;
 
+int WriteContent(int startCluster, char* content, int length)
+{
+	// Requires: length>=0, startCluster>=2
+	int start = DATA_OFFSET+(startCluster-2)*CLUSTER_SIZE;
+	short cur;
+	cur = startCluster;
+	int temp = length;
+	if(length<0||startCluster<2)
+	{
+		return -1;
+	}
+	
+	while(temp>0)
+	{
+		if(lseek(fd,start,SEEK_SET)<0)
+			return -1;
+		if(temp < CLUSTER_SIZE)
+		{
+			write(fd, content, temp);
+			content += temp;
+		}
+		else 
+		{
+			write(fd, content, CLUSTER_SIZE);
+			content += CLUSTER_SIZE;
+			cur = GetFatCluster(cur);
+			if(cur==0xffff) break;
+			start = DATA_OFFSET+(cur-2)*CLUSTER_SIZE;
+		}
+		temp -= CLUSTER_SIZE;
+	}
+	return length;
+}
+
+char* get_cur_dir(){
+	char *s;
+	int le = 0, shift = 0, l;
+	int i;
+	if (curdir) le = strlen(curdir->short_name);
+
+	for(i=2;i<=dirno;i++){
+		if (fatherdir[i]){
+			le += strlen(fatherdir[i]->short_name);
+			le++;
+		}
+
+	}
+	s = (char*)malloc(sizeof(char)*(le+2));
+	shift=1;
+	s[0]='/';
+	for(i=2;i<=dirno;i++)
+	if (fatherdir[i]){
+		l = strlen(fatherdir[i]->short_name);
+		memcpy(s+shift,fatherdir[i]->short_name,l);
+		shift+=l;
+		s[shift++] = '/';
+	}
+	if (curdir){
+		l = strlen(curdir->short_name);
+		memcpy(s+shift,curdir->short_name,l);
+		shift+=l;
+	}
+	s[shift]=0;
+	return s;
+}
+
 /*
 *功能：打印启动项记录
 */
@@ -466,7 +532,7 @@ int WriteFat()
 		perror("lseek failed");
 		return -1;
 	}
-	if(write(fd,fatbuf,512*250)<0)
+	if(write(fd,fatbuf,FAT_SIZE)<0)
 	{
 		perror("read failed");
 		return -1;
@@ -476,7 +542,7 @@ int WriteFat()
 		perror("lseek failed");
 		return -1;
 	}
-	if((write(fd,fatbuf,512*250))<0)
+	if((write(fd,fatbuf,FAT_SIZE))<0)
 	{
 		perror("read failed");
 		return -1;
@@ -494,7 +560,7 @@ int ReadFat()
 		perror("lseek failed");
 		return -1;
 	}
-	if(read(fd,fatbuf,512*250)<0)
+	if(read(fd,fatbuf,FAT_SIZE)<0)
 	{
 		perror("read failed");
 		return -1;
@@ -536,6 +602,20 @@ int fd_df(char *filename)
 		return -1;
 	}
 
+	if(pentry->subdir) {
+		struct Entry *tentry=(struct Entry*)malloc(sizeof(struct Entry));
+		fd_cd(filename);
+		for(i=curdir->FirstCluster;i!=0xffff;i=GetFatCluster(i)) {
+			for(j=0;j<CLUSTER_SIZE;j+=abs(ret)) {
+				lseek(fd,DATA_OFFSET+(i-2)*CLUSTER_SIZE+j,SEEK_SET);
+				ret=GetEntry(tentry);
+				if(ret>0 && strcmp(tentry->short_name,".") && strcmp(tentry->short_name,"..")) fd_df(tentry->short_name);
+			}
+		}
+		fd_cd("..");
+		free(tentry);
+	}
+
 	/*清除fat表项*/
 	seed = pentry->FirstCluster;
 	while((next = GetFatCluster(seed))!=0xffff)
@@ -568,7 +648,7 @@ int fd_df(char *filename)
 		exit(1);
 	return 1;
 }
-
+int mogic=0;
 
 /*
 *参数：filename，类型：char，创建文件的名称
@@ -581,7 +661,7 @@ int fd_cf(char *filename,int size)
 
 	struct Entry *pentry;
 	int ret,i=0,cluster_addr,offset;
-	unsigned short cluster,clusterno[100];
+	unsigned short cluster,*clusterno;
 	unsigned char c[DIR_ENTRY_SIZE];
 	int index,clustersize;
 	unsigned char buf[DIR_ENTRY_SIZE];
@@ -589,6 +669,7 @@ int fd_cf(char *filename,int size)
 
 
 	clustersize = (size / (CLUSTER_SIZE));
+	clusterno=(unsigned short*)malloc(sizeof(short)*clustersize);
 
 	if(size % (CLUSTER_SIZE) != 0)
 		clustersize ++;
@@ -598,7 +679,7 @@ int fd_cf(char *filename,int size)
 	if (ret<0)
 	{
 		/*查询fat表，找到空白簇，保存在clusterno[]中*/
-		for(cluster=2;cluster<1000;cluster++)
+		for(cluster=2;cluster<(FAT_SIZE>>1);cluster++)
 		{
 			index = cluster *2;
 			if(fatbuf[index]==0x00&&fatbuf[index+1]==0x00)
@@ -664,6 +745,10 @@ int fd_cf(char *filename,int size)
 						c[i]=' ';
 
 					c[11] = 0x01;
+					if(mogic) {
+						mogic=0;
+						c[11]=ATTR_SUBDIR;
+					}
 
 					/*写第一簇的值*/
 					c[26] = (clusterno[0] &  0x00ff);
@@ -694,7 +779,9 @@ int fd_cf(char *filename,int size)
 		}
 		else 
 		{
-			cluster_addr = (curdir->FirstCluster -2 )*CLUSTER_SIZE + DATA_OFFSET;
+			int currentCluster=curdir->FirstCluster;
+			for(;currentCluster!=0xffff;currentCluster=GetFatCluster(currentCluster)) {
+			cluster_addr = (currentCluster/*curdir->FirstCluster*/ -2 )*CLUSTER_SIZE + DATA_OFFSET;
 			if((ret= lseek(fd,cluster_addr,SEEK_SET))<0)
 				perror("lseek cluster_addr failed");
 			offset = cluster_addr;
@@ -750,6 +837,20 @@ int fd_cf(char *filename,int size)
 				}
 
 			}
+			if(GetFatCluster(currentCluster)==0xffff) {
+				int i;
+				for(i=2*2;i<FAT_SIZE;i+=2) 
+					if(fatbuf[i]==0&&fatbuf[i+1]==0) {
+						fatbuf[i]=fatbuf[i+1]=0xff;
+						break;
+					}
+				if(i!=FAT_SIZE) {
+					i<<=2;
+					fatbuf[currentCluster<<1]=i&0xff;
+					fatbuf[currentCluster<<1|1]=i>>8;
+				}
+			}
+			}
 		}
 	}
 	else
@@ -758,7 +859,7 @@ int fd_cf(char *filename,int size)
 		free(pentry);
 		return -1;
 	}
-	return 1;
+	return -1;
 
 }
 
@@ -767,8 +868,11 @@ void do_usage()
 	printf("please input a command, including followings:\n\tls\t\t\tlist all files\n\tcd <dir>\t\tchange direcotry\n\tcf <filename> <size>\tcreate a file\n\tdf <file>\t\tdelete a file\n\texit\t\t\texit this system\n");
 }
 
-int fd_mkdir(const char* name) {
+int fd_mkdir(char* name) {
 	puts("not implemented");	
+	mogic=1;
+	fd_cf(name,DIR_ENTRY_SIZE*2);
+
 }
 
 

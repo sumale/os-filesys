@@ -11,6 +11,7 @@
 #define FAT_TWO_OFFSET (FAT_ONE_OFFSET+FAT_SIZE)//512+250*512
 #define ROOTDIR_OFFSET (FAT_TWO_OFFSET+FAT_SIZE)//512+250*512+250*512+512
 #define DATA_OFFSET (ROOTDIR_OFFSET+bdptor.RootDirEntries*DIR_ENTRY_SIZE)//512+250*512+250*512+512*32
+#define CLUSTER_NUM ((bdptor.LogicSectors*bdptor.BytesPerSector-DATA_OFFSET)/(CLUSTER_SIZE))
 
            
 
@@ -71,7 +72,7 @@ int fd_ls();
 int fd_cd(char *dir);
 int fd_df(char *file_name);
 int fd_cf(char *file_name,int size);
-int fd_mkdir(const char* name);
+int fd_mkdir(char* name);
 
 void findDate(unsigned short *year,
 			  unsigned short *month,
