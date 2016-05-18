@@ -292,9 +292,11 @@ int ScanEntry (char *entryname,struct Entry *pentry,int mode)
 			ret = GetEntry(pentry);
 			offset +=abs(ret);
 
-			if(pentry->subdir == mode &&!strcmp((char*)pentry->short_name,uppername))
+			if(pentry->subdir == mode &&!strcmp((char*)pentry->short_name,uppername)) {
+				magic=ret;
 
 				return offset;
+			}
 
 		}
 		return -1;
@@ -515,13 +517,13 @@ int fd_df(char *filename)
 	unsigned short seed,next;
 	int start_cluster=-1,start_offs=-1,end_addr=-1;
 
-	tmp=curdir;
+	/*tmp=curdir;
 	for(pi=filename,splitter=0;*pi;++pi)
 		if(*pi=='/') splitter=pi;
 	if(splitter) {
 		*splitter=0;
 		changeDirTmp(filename);
-	}
+	}*/
 	pentry = (struct Entry*)malloc(sizeof(struct Entry));
 
 
@@ -548,17 +550,18 @@ int fd_df(char *filename)
 	/*清除目录表项*/
 	c=0xe5;
 
-
-	if(lseek(fd,ret-0x20,SEEK_SET)<0)
+	for(lseek(fd,ret,SEEK_SET);magic>0;magic-=0x20) {
+	if(lseek(fd,-0x20,SEEK_CUR)<0)
 		perror("lseek fd_df failed");
 	if(write(fd,&c,1)<0)
 		perror("write failed");  
+	}
 
-
+/*
 	if(lseek(fd,ret-0x40,SEEK_SET)<0)
 		perror("lseek fd_df failed");
 	if(write(fd,&c,1)<0)
-		perror("write failed");
+		perror("write failed");*/
 
 	free(pentry);
 	if(WriteFat()<0)
