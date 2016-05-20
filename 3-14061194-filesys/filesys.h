@@ -2,7 +2,7 @@
 #ifndef FILESYS_H
 #define FILESYS_H
 #include<stddef.h>
-#define DEVNAME "data"                         
+#define DEVNAME "data"
 #define DIR_ENTRY_SIZE (32)
 #define SECTOR_SIZE 512 // Only 512B Sector size is supported.
 #define CLUSTER_SIZE (bdptor.BytesPerSector*bdptor.SectorsPerCluster)//512*4
@@ -13,7 +13,7 @@
 #define DATA_OFFSET (ROOTDIR_OFFSET+bdptor.RootDirEntries*DIR_ENTRY_SIZE)//512+250*512+250*512+512*32
 #define CLUSTER_NUM ((bdptor.LogicSectors*bdptor.BytesPerSector-DATA_OFFSET)/(CLUSTER_SIZE))
 
-           
+
 
 /*属性位掩码*/
 #define ATTR_READONLY 0x01
@@ -24,7 +24,7 @@
 #define ATTR_ARCHIVE 0x20
 
 /*时间掩码 5：6：5 */
-#define MASK_HOUR 0xf800 
+#define MASK_HOUR 0xf800
 #define MASK_MIN 0x07e0
 #define MASK_SEC 0x001f
 
@@ -71,7 +71,7 @@ struct Entry{
 int fd_ls();
 int fd_cd(char *dir);
 int fd_df(char *file_name);
-int fd_cf(char *file_name,int size);
+int fd_cf(char *file_name,char* size);
 int fd_mkdir(char* name);
 
 void findDate(unsigned short *year,
@@ -92,7 +92,7 @@ int GetEntry(struct Entry *entry);
 void FileNameFormat(unsigned char *name);
 unsigned short GetFatCluster(unsigned short prev);
 void ClearFatCluster(unsigned short cluster);
-
+void FillNewDir(char *content,int currentStartCluster,int startIndex);
 #if 0
 int fd;
 struct BootDescriptor_t bdptor;
@@ -104,4 +104,3 @@ unsigned char fatbuf[FAT_SIZE];
 #endif
 
 #endif
-
