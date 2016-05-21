@@ -93,6 +93,7 @@ void FileNameFormat(unsigned char *name);
 unsigned short GetFatCluster(unsigned short prev);
 void ClearFatCluster(unsigned short cluster);
 void FillNewDir(char *content,int currentStartCluster,int startIndex);
+void FillTime(char*);
 #if 0
 int fd;
 struct BootDescriptor_t bdptor;

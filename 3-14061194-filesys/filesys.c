@@ -44,13 +44,13 @@ int WriteContent(int startCluster, char* content, int length)
 			return -1;
 		if(temp < CLUSTER_SIZE)
 		{
-			printf("%d\n",cur);
+			//printf("%d\n",cur);
 			//system("pause");
 			write(fd, content, temp);
 			content += temp;
 			lseek(fd,start+temp,SEEK_SET);
 			//printf("%d\n",temp);
-			printf("%d\n",write(fd, zero, CLUSTER_SIZE-temp));
+			//printf("%d\n",write(fd, zero, CLUSTER_SIZE-temp));
 			cur=GetFatCluster(cur);
 			start=DATA_OFFSET+(cur-2)*CLUSTER_SIZE;
 		}
@@ -309,6 +309,7 @@ int fd_ls()
 					entry.size,
 					(entry.subdir) ? "dir":"file");
 			}
+			if(ret>0) printf("%d\n",offset);
 		}
 	}
 
@@ -628,6 +629,7 @@ int fd_df(char *filename)
 	}
 
 	if(pentry->subdir) {
+		int bk=magic;
 		int ret;
 		struct Entry *tentry=(struct Entry*)malloc(sizeof(struct Entry));
 		fd_cd(filename);
@@ -642,6 +644,7 @@ int fd_df(char *filename)
 				}
 			}
 		}
+		magic=bk;
 		fd_cd("..");
 		free(tentry);
 	}
@@ -700,6 +703,8 @@ int fd_cf_old(char *filename,int size)
 
 	clustersize = (size / (CLUSTER_SIZE));
 	clusterno=(unsigned short*)malloc(sizeof(short)*clustersize);
+
+	puts(filename);
 
 	if(size % (CLUSTER_SIZE) != 0)
 		clustersize ++;
@@ -922,10 +927,10 @@ int fd_cf(char *filename,char *data)
 			if(fatbuf[index]==0x00&&fatbuf[index+1]==0x00)
 			{
 				clusterno[i] = cluster;
-				printf("%d ",cluster);
+				//printf("%d ",cluster);
 				i++;
 				if(i==clustersize) {
-					puts("");
+					//puts("");
 					break;
 				}
 
@@ -1209,7 +1214,7 @@ void FillNewDir(char *content,int currentStartCluster,int startIndex)
 
 int main()
 {
-	char input[10];
+	char input[10000];
 	int size=0;
 	char name[12];
 	if((fd = open(DEVNAME,O_RDWR))<0)
@@ -1241,7 +1246,7 @@ int main()
 		{
 			scanf("%s", name);
 			scanf("%s", input);
-			size = atoi(input);
+			//size = atoi(input);
 			fd_cf(name,input);
 		}
 		else if(strcmp(input,"mkdir")==0) {
