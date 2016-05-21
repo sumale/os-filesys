@@ -11,7 +11,6 @@
 #include<time.h>
 #include "filesys.h"
 
-
 #define RevByte(low,high) ((high)<<8|(low))
 #define RevWord(lowest,lower,higher,highest) ((highest)<< 24|(higher)<<16|(lower)<<8|lowest)
 
@@ -28,7 +27,7 @@ int WriteContent(int startCluster, char* content, int length)
 {
 	// Requires: length>=0, startCluster>=2
 	int start = DATA_OFFSET+(startCluster-2)*CLUSTER_SIZE;
-	short cur;
+	unsigned short cur;
 	cur = startCluster;
 	int temp = length;
 	if(length<0||startCluster<2)
@@ -36,14 +35,24 @@ int WriteContent(int startCluster, char* content, int length)
 		return -1;
 	}
 
+	char *zero=(char*)malloc(CLUSTER_SIZE);
+	memset(zero,0,CLUSTER_SIZE);
+
 	while(temp>0)
 	{
 		if(lseek(fd,start,SEEK_SET)<0)
 			return -1;
 		if(temp < CLUSTER_SIZE)
 		{
+			printf("%d\n",cur);
+			//system("pause");
 			write(fd, content, temp);
 			content += temp;
+			lseek(fd,start+temp,SEEK_SET);
+			//printf("%d\n",temp);
+			printf("%d\n",write(fd, zero, CLUSTER_SIZE-temp));
+			cur=GetFatCluster(cur);
+			start=DATA_OFFSET+(cur-2)*CLUSTER_SIZE;
 		}
 		else
 		{
@@ -54,6 +63,13 @@ int WriteContent(int startCluster, char* content, int length)
 			start = DATA_OFFSET+(cur-2)*CLUSTER_SIZE;
 		}
 		temp -= CLUSTER_SIZE;
+	}
+	while(cur!=0xffff) {
+		printf("%d\n",cur);
+		lseek(fd,start,SEEK_SET);
+		write(fd,zero,CLUSTER_SIZE);
+		cur=GetFatCluster(cur);
+		start=DATA_OFFSET+(cur-2)*CLUSTER_SIZE;
 	}
 	return length;
 }
@@ -300,6 +316,7 @@ int fd_ls()
 	{
 		int current_cluster;
 		for(current_cluster=curdir->FirstCluster;current_cluster!=0xffff;current_cluster=RevByte(fatbuf[current_cluster<<1],fatbuf[current_cluster<<1|1])) {
+			printf("%d\n",current_cluster);
 			cluster_addr = DATA_OFFSET + (current_cluster/*curdir->FirstCluster*/-2) * CLUSTER_SIZE ;
 			if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
 				perror("lseek cluster_addr failed");
@@ -326,6 +343,7 @@ int fd_ls()
 						entry.size,
 						(entry.subdir) ? "dir":"file");
 				}
+				//printf("%d\n",offset-cluster_addr);
 			}
 		}
 	}
@@ -601,19 +619,27 @@ int fd_df(char *filename)
 	ret = ScanEntry(filename,pentry,0);
 	if(ret<0)
 	{
+		ret=ScanEntry(filename,pentry,1);
+		if(ret<0) {
 		printf("no such file\n");
 		free(pentry);
 		return -1;
+		}
 	}
 
 	if(pentry->subdir) {
+		int ret;
 		struct Entry *tentry=(struct Entry*)malloc(sizeof(struct Entry));
 		fd_cd(filename);
 		for(i=curdir->FirstCluster;i!=0xffff;i=GetFatCluster(i)) {
 			for(j=0;j<CLUSTER_SIZE;j+=abs(ret)) {
 				lseek(fd,DATA_OFFSET+(i-2)*CLUSTER_SIZE+j,SEEK_SET);
 				ret=GetEntry(tentry);
-				if(ret>0 && strcmp(tentry->short_name,".") && strcmp(tentry->short_name,"..")) fd_df(tentry->short_name);
+				//printf(tentry->short_name);putchar('x'); putchar('\n');
+				if(ret>0 && strcmp(tentry->short_name,".") && strcmp(tentry->short_name,"..")) {
+					puts(tentry->short_name);
+					fd_df(tentry->short_name);
+				}
 			}
 		}
 		fd_cd("..");
@@ -633,9 +659,9 @@ int fd_df(char *filename)
 
 	/*清除目录表项*/
 	c=0xe5;
-
-	for(lseek(fd,ret,SEEK_SET);magic>0;magic-=0x20) {
-	if(lseek(fd,-0x20,SEEK_CUR)<0)
+	printf("%d\n",ret);
+	for(;magic>0;magic-=0x20,ret-=0x20) {
+	if(lseek(fd,ret-0x20,SEEK_SET)<0)
 		perror("lseek fd_df failed");
 	if(write(fd,&c,1)<0)
 		perror("write failed");
@@ -885,7 +911,8 @@ int fd_cf(char *filename,char *data)
 		clustersize ++;
 
 	//扫描根目录，是否已存在该文件名
-	ret = ScanEntry(filename,pentry,mogic);
+	ret = ScanEntry(filename,pentry,0);
+	if(ret<0) ret=ScanEntry(filename,pentry,1);
 	if (ret<0)
 	{
 		/*查询fat表，找到空白簇，保存在clusterno[]中*/
@@ -895,10 +922,12 @@ int fd_cf(char *filename,char *data)
 			if(fatbuf[index]==0x00&&fatbuf[index+1]==0x00)
 			{
 				clusterno[i] = cluster;
-
+				printf("%d ",cluster);
 				i++;
-				if(i==clustersize)
+				if(i==clustersize) {
+					puts("");
 					break;
+				}
 
 			}
 
@@ -1062,7 +1091,7 @@ int fd_cf(char *filename,char *data)
 						{
 							printf("%c ",content[i]);
 						}*/
-						WriteContent(currentCluster,content,64);
+						WriteContent(clusterno[0],content,64);
 						mogic=0;
 					}
 					free(pentry);
@@ -1158,7 +1187,7 @@ void FillNewDir(char *content,int currentStartCluster,int startIndex)
 	for(i = 12;i<22;i++)
 	content[startIndex+i] = (char)0x00;
 
-	FillTime(content+22);
+	FillTime(content+startIndex+22);
 	/*
 	content[startIndex+22] = (char)(((hour&31)<<3)+((minute>>3)&7));
 	content[startIndex+23] = (char)(((minute&7)<<5)+(second&31));
