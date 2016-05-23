@@ -1,14 +1,14 @@
 #ifndef FILESYS_H
 #define FILESYS_H
 #include<stddef.h>
-#define DEVNAME "/dev/loop0"
+#define DEVNAME "/dev/sdb1"                         
 #define DIR_ENTRY_SIZE 32
 #define SECTOR_SIZE 512
 #define CLUSTER_SIZE 512*4                         
 #define FAT_ONE_OFFSET 512                       
-#define FAT_TWO_OFFSET 512+40*512 
-#define ROOTDIR_OFFSET 512+40*2*512                     
-#define DATA_OFFSET 512+40*2*512+512*32        
+#define FAT_TWO_OFFSET 512+250*512                       
+#define ROOTDIR_OFFSET 512+250*512+250*512+512                     
+#define DATA_OFFSET 512+250*512+250*512+512*32        
 
            
 
@@ -95,7 +95,7 @@ struct Entry *curdir = NULL;
 int dirno = 0;/*代表目录的层数*/
 struct Entry* fatherdir[10];
 
-unsigned char fatbuf[512*40];  
+unsigned char fatbuf[512*250];  
 
 #endif
 

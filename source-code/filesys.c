@@ -389,7 +389,7 @@ int WriteFat()
 		perror("lseek failed");
 		return -1;
 	}
-	if(write(fd,fatbuf,512*40)<0)
+	if(write(fd,fatbuf,512*250)<0)
 	{
 		perror("read failed");
 		return -1;
@@ -399,7 +399,7 @@ int WriteFat()
 		perror("lseek failed");
 		return -1;
 	}
-	if((write(fd,fatbuf,512*40))<0)
+	if((write(fd,fatbuf,512*250))<0)
 	{
 		perror("read failed");
 		return -1;
@@ -417,7 +417,7 @@ int ReadFat()
 		perror("lseek failed");
 		return -1;
 	}
-	if(read(fd,fatbuf,512*40)<0)
+	if(read(fd,fatbuf,512*250)<0)
 	{
 		perror("read failed");
 		return -1;
@@ -510,7 +510,7 @@ int fd_cf(char *filename,int size)
 	if (ret<0)
 	{
 		/*查询fat表，找到空白簇，保存在clusterno[]中*/
-		for(cluster=2;cluster<10240;cluster++)
+		for(cluster=2;cluster<1000;cluster++)
 		{
 			index = cluster *2;
 			if(fatbuf[index]==0x00&&fatbuf[index+1]==0x00)
