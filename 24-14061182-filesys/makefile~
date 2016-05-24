@@ -1,0 +1,2 @@
+filesys : filesys.c filesys.h
+			gcc -o filesys filesys.c filesys.h
