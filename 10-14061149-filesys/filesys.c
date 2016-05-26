@@ -1008,6 +1008,8 @@ int fd_rm(char *dirNameold,int mode)//mode==0 直接删除
 						fd_df(entry.short_name,0);
 					}
 				}
+				if((ret = lseek(fd,offset,SEEK_SET))<0)
+						;
 			}
 		}
 	}
@@ -1045,9 +1047,9 @@ int fd_rm(char *dirNameold,int mode)//mode==0 直接删除
 							printf("删除的目录不为空\n");
 							fd_df(entry.short_name,0);
 						}
-						if((ret = lseek(fd,offset,SEEK_SET))<0)
-							;
 					}	
+					if((ret = lseek(fd,offset,SEEK_SET))<0)
+						;
 				}
 			}
 			cluster = GetFatCluster(cluster);
