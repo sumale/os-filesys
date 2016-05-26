@@ -50,7 +50,8 @@ int WriteContent(int startCluster, char* content, int length)
 			content += temp;
 			lseek(fd,start+temp,SEEK_SET);
 			//printf("%d\n",temp);
-			//printf("%d\n",write(fd, zero, CLUSTER_SIZE-temp));
+			//printf("%d\n",
+			write(fd, zero, CLUSTER_SIZE-temp);
 			cur=GetFatCluster(cur);
 			start=DATA_OFFSET+(cur-2)*CLUSTER_SIZE;
 		}
@@ -309,7 +310,7 @@ int fd_ls()
 					entry.size,
 					(entry.subdir) ? "dir":"file");
 			}
-			if(ret>0) printf("%d\n",offset);
+			//if(ret>0) printf("%d\n",offset);
 		}
 	}
 
@@ -317,7 +318,7 @@ int fd_ls()
 	{
 		int current_cluster;
 		for(current_cluster=curdir->FirstCluster;current_cluster!=0xffff;current_cluster=RevByte(fatbuf[current_cluster<<1],fatbuf[current_cluster<<1|1])) {
-			printf("%d\n",current_cluster);
+			//printf("%d\n",current_cluster);
 			cluster_addr = DATA_OFFSET + (current_cluster/*curdir->FirstCluster*/-2) * CLUSTER_SIZE ;
 			if((ret = lseek(fd,cluster_addr,SEEK_SET))<0)
 				perror("lseek cluster_addr failed");
@@ -639,7 +640,7 @@ int fd_df(char *filename)
 				ret=GetEntry(tentry);
 				//printf(tentry->short_name);putchar('x'); putchar('\n');
 				if(ret>0 && strcmp(tentry->short_name,".") && strcmp(tentry->short_name,"..")) {
-					puts(tentry->short_name);
+					//puts(tentry->short_name);
 					fd_df(tentry->short_name);
 				}
 			}
@@ -662,7 +663,7 @@ int fd_df(char *filename)
 
 	/*清除目录表项*/
 	c=0xe5;
-	printf("%d\n",ret);
+	//printf("%d\n",ret);
 	for(;magic>0;magic-=0x20,ret-=0x20) {
 	if(lseek(fd,ret-0x20,SEEK_SET)<0)
 		perror("lseek fd_df failed");
